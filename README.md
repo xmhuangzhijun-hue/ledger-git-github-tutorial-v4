@@ -55,3 +55,6 @@ py -m venv .venv
 个人博客：https://huangzhijun.online/
 系列仓库：https://github.com/xmhuangzhijun-hue/ledger-mvp
 本地第二集交付包独立提供；公开仓库未更新时请以本包为准。
+
+Git 仓库不包含运行时生成的账本数据库。
+换电脑继续使用时，需要另外准备账本数据；克隆代码不会复制原账本。
