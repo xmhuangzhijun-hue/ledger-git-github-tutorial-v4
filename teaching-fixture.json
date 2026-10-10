@@ -1,0 +1,6 @@
+[
+  {"amount_cents":2300,"date":"2026-09-15","category":"餐饮","note":"虚构午饭"},
+  {"amount_cents":800,"date":"2026-09-16","category":"交通","note":"虚构公交"},
+  {"amount_cents":10000,"date":"2026-09-17","category":"购物","note":"虚构购物"},
+  {"amount_cents":1000,"date":"2026-10-01","category":"餐饮","note":"虚构早餐"}
+]
