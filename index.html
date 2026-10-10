@@ -8,22 +8,55 @@
 <main class="main"><div class="topline"><span class="eyebrow">PERSONAL LEDGER</span><span class="local-pill">本机后端 · SQLite</span></div><h1>把今天记清楚。</h1><p class="intro">从一顿午饭开始，慢慢看清自己的日常支出。</p><div id="load-error" class="feedback" role="alert" hidden></div>
 <div class="workspace"><section class="entry"><div class="section-heading"><h2 id="form-title">记一笔支出</h2><span class="tiny-badge">人民币 CNY</span></div><form id="entry-form"><label class="amount-label" for="amount">支出金额</label><div class="amount-line"><span>¥</span><input id="amount" name="amount" inputmode="decimal" placeholder="0.00" autocomplete="off" required aria-describedby="save-status"></div><div class="field"><label for="date">消费日期</label><input type="date" id="date" name="date" required></div><div class="field"><label for="category">支出分类</label><select id="category" name="category"><option>餐饮</option><option>交通</option><option>购物</option><option>居家</option><option>其他</option></select></div><div class="field"><label for="note">备注</label><input id="note" name="note" placeholder="例如：午饭" maxlength="60" autocomplete="off"></div><button id="save" class="primary" type="submit">保存这笔支出</button><button id="cancel" class="cancel" type="button" hidden>取消修改</button><p id="save-status" class="status" role="status" aria-live="polite">保存后，可以在右侧查看和修改。</p></form></section>
 <div class="overview"><div class="summary"><section class="stat"><span class="stat-title">所选月份支出</span><strong id="total" class="stat-number">¥0.00</strong><span id="summary-month" class="stat-sub"></span></section><section class="stat"><span class="stat-title">已记录</span><strong class="stat-number"><span id="count">0</span><small>笔</small></strong><span class="stat-sub">与下方明细使用同一范围</span></section></div>
-<section class="panel"><div class="panel-head"><h2>支出明细</h2><div class="month-nav" role="group" aria-label="月份导航"><button type="button" id="prev-month">上一月</button><input type="month" id="month" class="month" aria-label="查看月份" required><button type="button" id="next-month">下一月</button><button type="button" id="current-month">回到本月</button></div></div><table id="ledger-table" class="table" hidden><thead><tr><th>这笔花在哪里</th><th>消费日期</th><th>金额</th><th>操作</th></tr></thead><tbody id="records"></tbody></table><div id="empty" class="empty"><div class="empty-symbol">＋</div><strong>这个月，还没有记录</strong><p>在左侧记一笔，支出就会出现在这里。</p></div></section>
+<section class="panel"><div class="panel-head"><h2>支出明细</h2><div class="month-nav" role="group" aria-label="月份导航"><button type="button" id="prev-month">上一月</button><input type="month" id="month" class="month" aria-label="查看月份" required><button type="button" id="next-month">下一月</button><button type="button" id="current-month">回到本月</button><button type="button" id="reload">重新读取</button></div></div><table id="ledger-table" class="table" hidden><thead><tr><th>这笔花在哪里</th><th>消费日期</th><th>金额</th><th>操作</th></tr></thead><tbody id="records"></tbody></table><div id="empty" class="empty"><div class="empty-symbol">＋</div><strong>这个月，还没有记录</strong><p>在左侧记一笔，支出就会出现在这里。</p></div></section>
 <section class="panel"><div class="panel-head"><h2>钱花在哪里</h2><span class="stat-sub">按所选月份汇总</span></div><div id="categories" class="category-wrap"></div></section></div></div><footer class="footer"><span>仅记录支出 · 不连接银行或支付账户</span><span>本机教学版 · 同一服务共享 · 手动刷新</span></footer></main></div>
 <script>
 'use strict';
 const STORAGE='ledger-mvp-demo-v1';const $=s=>document.querySelector(s);const categories=['餐饮','交通','购物','居家','其他'];
-let rows=[],editing=null,saving=false,loadFailed=false;
+let rows=[],editing=null,saving=false,loadFailed=false,loading=false;
 function today(){const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
 function validDay(s){if(!/^\d{4}-\d{2}-\d{2}$/.test(s))return false;const d=new Date(s+'T12:00:00');return !isNaN(d)&&`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`===s}
 function money(c){return '¥'+(c/100).toFixed(2)}
 function status(msg,type=''){const el=$('#save-status');el.textContent=msg;el.className='status '+type}
 function adapt(r){return {...r,cents:r.amount_cents,createdAt:r.created_at,updatedAt:r.updated_at}}
 async function api(url,options={}){let response;try{response=await fetch(url,{...options,headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(10000)})}catch(e){throw Error('服务连接失败或结果未确认；本次未确认保存成功。输入已保留，请恢复服务后先核对记录，不要直接重复提交。')}if(!response.ok)throw Error(response.status===404?'记录不存在，请刷新后核对。':'后端拒绝此请求，请检查输入。');return response.status===204?null:response.json()}
-async function load(){try{rows=(await api('/api/expenses')).map(adapt);loadFailed=false;$('#load-error').hidden=true;render()}catch(e){loadFailed=true;$('#load-error').hidden=false;$('#load-error').textContent=e.message}$('#save').disabled=loadFailed}
+async function load(){
+  if(loading||saving)return;
+  loading=true;
+  $('#reload').disabled=true;
+  $('#reload').textContent='读取中…';
+  $('#save').disabled=true;
+  render();
+  try{
+    rows=(await api('/api/expenses')).map(adapt);
+    loadFailed=false;
+    $('#load-error').hidden=true;
+  }catch(e){
+    loadFailed=true;
+    $('#load-error').hidden=false;
+    $('#load-error').textContent='无法读取账本。请确认本机服务已启动，再点击“重新读取”。';
+  }finally{
+    loading=false;
+    $('#reload').disabled=false;
+    $('#reload').textContent='重新读取';
+    $('#save').disabled=loadFailed||saving;
+    render();
+  }
+}
 $('#date').value=today();$('#month').value=today().slice(0,7);
 function node(tag,cls,text){const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n}
-function render(flashId){let month=$('#month').value;if(!/^\d{4}-\d{2}$/.test(month)){month=today().slice(0,7);$('#month').value=month}const filtered=rows.filter(r=>r.date.startsWith(month)).sort((a,b)=>b.date.localeCompare(a.date)||b.createdAt.localeCompare(a.createdAt));const total=filtered.reduce((sum,r)=>sum+r.cents,0);$('#total').textContent=money(total);$('#count').textContent=filtered.length;$('#summary-month').textContent=month.replace('-',' 年 ')+' 月';$('#records').replaceChildren();$('#ledger-table').hidden=!filtered.length;$('#empty').hidden=!!filtered.length;
+function render(flashId){let month=$('#month').value;if(!/^\d{4}-\d{2}$/.test(month)){month=today().slice(0,7);$('#month').value=month}
+$('#summary-month').textContent=month.replace('-',' 年 ')+' 月';
+if(loadFailed||loading){
+  $('#total').textContent='—';
+  $('#count').textContent='—';
+  $('#records').replaceChildren();
+  $('#categories').replaceChildren();
+  $('#ledger-table').hidden=true;
+  $('#empty').hidden=true;
+  return;
+}
+const filtered=rows.filter(r=>r.date.startsWith(month)).sort((a,b)=>b.date.localeCompare(a.date)||b.createdAt.localeCompare(a.createdAt));const total=filtered.reduce((sum,r)=>sum+r.cents,0);$('#total').textContent=money(total);$('#count').textContent=filtered.length;$('#records').replaceChildren();$('#ledger-table').hidden=!filtered.length;$('#empty').hidden=!!filtered.length;$('#empty strong').textContent=month.replace('-',' 年 ')+' 月，还没有记录';
 for(const r of filtered){const tr=node('tr',r.id===flashId?'flash':'');const desc=node('td');desc.append(node('div','record-name',r.note||r.category),node('div','category-label',r.category));tr.append(desc,node('td','',r.date.slice(5).replace('-',' / ')),node('td','record-amount','−'+money(r.cents)));const actions=node('td');const edit=node('button','edit','修改');edit.type='button';edit.setAttribute('aria-label',`修改${r.note||r.category}记录`);edit.onclick=()=>startEdit(r.id);const del=node('button','delete','删除');del.type='button';del.setAttribute('aria-label',`删除${r.note||r.category}记录`);del.onclick=()=>remove(r.id);actions.append(edit,del);tr.append(actions);$('#records').append(tr)}
 $('#categories').replaceChildren();const groups=categories.map(c=>[c,filtered.filter(r=>r.category===c).reduce((n,r)=>n+r.cents,0)]).filter(x=>x[1]>0).sort((a,b)=>b[1]-a[1]);if(!groups.length){const empty=node('p','stat-sub','记下支出后，这里会显示各分类金额。');empty.style.margin='0 0 8px';$('#categories').append(empty)}for(const [cat,sum]of groups){const row=node('div','category-row');const track=node('div','track');const bar=node('div','bar');bar.style.width=(sum/total*100)+'%';track.append(bar);row.append(node('span','',cat),track,node('span','cat-money',money(sum)));$('#categories').append(row)}}
 function clearEdit(){editing=null;$('#form-title').textContent='记一笔支出';$('#save').textContent='保存这笔支出';$('#cancel').hidden=true}
@@ -42,8 +75,9 @@ function moveMonth(offset){
 $('#prev-month').onclick=()=>moveMonth(-1);
 $('#next-month').onclick=()=>moveMonth(1);
 $('#current-month').onclick=()=>{$('#month').value=today().slice(0,7);render()};
-$('#entry-form').onsubmit=async e=>{e.preventDefault();if(saving||loadFailed)return;const raw=$('#amount').value.trim();if(!/^\d{1,7}(\.\d{1,2})?$/.test(raw)){status('请输入有效金额，最多两位小数。','error');return}const [whole,decimal='']=raw.split('.');const cents=Number(whole)*100+Number(decimal.padEnd(2,'0'));if(cents<=0){status('支出金额需要大于零。','error');return}const date=$('#date').value;if(!validDay(date)){status('请选择有效的消费日期。','error');return}const category=$('#category').value;if(!categories.includes(category)){status('请选择有效的分类。','error');return}
-saving=true;$('#save').disabled=true;status('正在保存…');try{const wasEdit=!!editing;const payload={amount_cents:cents,date,category,note:$('#note').value.trim()};const saved=adapt(await api('/api/expenses'+(editing?'/'+editing.id:''),{method:editing?'PATCH':'POST',body:JSON.stringify(payload)}));rows=editing?rows.map(r=>r.id===saved.id?saved:r):[...rows,saved];$('#month').value=date.slice(0,7);clearEdit();$('#amount').value='';$('#note').value='';render(saved.id);status(wasEdit?'后端已确认修改，明细与汇总已更新。':'后端已确认保存，可以在另一浏览器刷新查看。','success')}catch(err){status(err.message,'error')}finally{saving=false;$('#save').disabled=loadFailed}};
+$('#entry-form').onsubmit=async e=>{e.preventDefault();if(saving||loadFailed||loading)return;const raw=$('#amount').value.trim();if(!/^\d{1,7}(\.\d{1,2})?$/.test(raw)){status('请输入有效金额，最多两位小数。','error');return}const [whole,decimal='']=raw.split('.');const cents=Number(whole)*100+Number(decimal.padEnd(2,'0'));if(cents<=0){status('支出金额需要大于零。','error');return}const date=$('#date').value;if(!validDay(date)){status('请选择有效的消费日期。','error');return}const category=$('#category').value;if(!categories.includes(category)){status('请选择有效的分类。','error');return}
+saving=true;$('#save').disabled=true;$('#reload').disabled=true;status('正在保存…');try{const wasEdit=!!editing;const payload={amount_cents:cents,date,category,note:$('#note').value.trim()};const saved=adapt(await api('/api/expenses'+(editing?'/'+editing.id:''),{method:editing?'PATCH':'POST',body:JSON.stringify(payload)}));rows=editing?rows.map(r=>r.id===saved.id?saved:r):[...rows,saved];$('#month').value=date.slice(0,7);clearEdit();$('#amount').value='';$('#note').value='';render(saved.id);status(wasEdit?'后端已确认修改，明细与汇总已更新。':'后端已确认保存，可以在另一浏览器刷新查看。','success')}catch(err){status(err.message,'error')}finally{saving=false;$('#save').disabled=loadFailed||loading;$('#reload').disabled=loading}};
 async function remove(id){const r=rows.find(x=>x.id===id);if(!r||!confirm('删除这笔教学记录？'))return;try{await api('/api/expenses/'+id,{method:'DELETE'});rows=rows.filter(x=>x.id!==id);if(editing&&editing.id===id)clearEdit();render();status('后端已确认删除。','success')}catch(e){status(e.message,'error')}}
+$('#reload').onclick=()=>load();
 render();load();
 </script></body></html>
